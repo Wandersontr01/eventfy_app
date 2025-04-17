@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../widgets/responsive_generic_container.dart';
 import '../../models/event_types_model.dart';
+import '../../services/ibge_service.dart';
 
 class CadastroUsuarioView extends StatefulWidget {
   const CadastroUsuarioView({super.key});
@@ -22,6 +23,11 @@ class _CadastroUsuarioViewState extends State<CadastroUsuarioView>
   final TextEditingController idiomaController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
   final TextEditingController senhaController = TextEditingController();
+
+  final IbgeService ibgeService = IbgeService();
+  List<String> cidadesDisponiveis = [];
+  String? cidadeSelecionada;
+  bool carregandoCidades = false;
 
   String? generoSelecionado;
   String? estadoSelecionado;
@@ -84,11 +90,13 @@ class _CadastroUsuarioViewState extends State<CadastroUsuarioView>
 
   void _submitForm() {
     for (int i = 0; i < _formKeys.length; i++) {
-      if (!_formKeys[i].currentState!.validate()) {
+      final currentForm = _formKeys[i].currentState;
+      if (currentForm == null || !currentForm.validate()) {
         _tabController.animateTo(i);
         return;
       }
     }
+
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Cadastro realizado com sucesso!')),
     );
@@ -181,14 +189,8 @@ class _CadastroUsuarioViewState extends State<CadastroUsuarioView>
                         const SizedBox(height: 16),
                         _label('Estado', obrigatorio: true),
                         DropdownButtonFormField<String>(
+                          menuMaxHeight: 300,
                           value: estadoSelecionado,
-                          decoration: const InputDecoration(
-                            hintText: 'Selecione o estado',
-                            isDense: true,
-                          ),
-
-                          menuMaxHeight:
-                              300, // Limita o dropdown para no máximo 300px
                           items:
                               estadosBrasil
                                   .map(
@@ -198,8 +200,32 @@ class _CadastroUsuarioViewState extends State<CadastroUsuarioView>
                                     ),
                                   )
                                   .toList(),
-                          onChanged:
-                              (val) => setState(() => estadoSelecionado = val),
+                          onChanged: (val) async {
+                            setState(() {
+                              estadoSelecionado = val;
+                              cidadeSelecionada = null;
+                              cidadesDisponiveis = [];
+                              carregandoCidades = true;
+                            });
+
+                            try {
+                              final cidades = await ibgeService
+                                  .buscarMunicipiosPorEstado(val!);
+                              setState(() {
+                                cidadesDisponiveis = cidades;
+                              });
+                            } catch (e) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Erro ao buscar cidades: $e'),
+                                ),
+                              );
+                            } finally {
+                              setState(() {
+                                carregandoCidades = false;
+                              });
+                            }
+                          },
                           validator:
                               (v) =>
                                   v == null || v.isEmpty
@@ -209,23 +235,52 @@ class _CadastroUsuarioViewState extends State<CadastroUsuarioView>
 
                         const SizedBox(height: 16),
                         _label('Cidade', obrigatorio: true),
-                        TextFormField(
-                          controller: cidadeController,
-                          decoration: const InputDecoration(
-                            hintText: 'Digite sua cidade',
-                          ),
-                          validator:
-                              (v) =>
-                                  v == null || v.isEmpty
-                                      ? 'Campo obrigatório'
-                                      : null,
-                        ),
+                        carregandoCidades
+                            ? const CircularProgressIndicator()
+                            : DropdownButtonFormField<String>(
+                              menuMaxHeight: 300,
+                              value: cidadeSelecionada,
+                              items:
+                                  cidadesDisponiveis
+                                      .map(
+                                        (cidade) => DropdownMenuItem(
+                                          value: cidade,
+                                          child: Text(cidade),
+                                        ),
+                                      )
+                                      .toList(),
+                              onChanged:
+                                  (val) =>
+                                      setState(() => cidadeSelecionada = val),
+                              validator:
+                                  (v) =>
+                                      v == null || v.isEmpty
+                                          ? 'Campo obrigatório'
+                                          : null,
+                            ),
+
                         const SizedBox(height: 16),
                         _label('Idioma preferido', obrigatorio: true),
-                        TextFormField(
-                          controller: idiomaController,
+                        DropdownButtonFormField<String>(
+                          value:
+                              idiomaController.text.isNotEmpty
+                                  ? idiomaController.text
+                                  : null,
+                          items:
+                              ['Português', 'Inglês', 'Espanhol']
+                                  .map(
+                                    (lang) => DropdownMenuItem(
+                                      value: lang,
+                                      child: Text(lang),
+                                    ),
+                                  )
+                                  .toList(),
+                          onChanged:
+                              (val) =>
+                                  setState(() => idiomaController.text = val!),
                           decoration: const InputDecoration(
-                            hintText: 'Ex: Português',
+                            hintText: 'Selecione o idioma',
+                            isDense: true,
                           ),
                           validator:
                               (v) =>
@@ -233,6 +288,7 @@ class _CadastroUsuarioViewState extends State<CadastroUsuarioView>
                                       ? 'Campo obrigatório'
                                       : null,
                         ),
+
                         const SizedBox(height: 16),
                         _label('Data de nascimento', obrigatorio: true),
                         TextFormField(
